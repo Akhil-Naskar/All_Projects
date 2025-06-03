@@ -1,0 +1,272 @@
+create database case2;
+
+use case2;
+
+create table user (
+	user_id int,
+    created_at varchar(100),
+    company_id int,
+    language varchar(50),
+    activated_at varchar(50),
+    state varchar(50)
+    );
+    
+show variables like 'secure_file_priv';
+
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/users.csv'
+into table user
+fields terminated by ','
+enclosed by '"'
+lines terminated by '\n'
+ignore 1 rows;
+
+select * from user;
+
+
+create table events(
+	user_id int,
+    occured_at varchar(50),
+    event_type varchar(50),
+    event_name varchar(50),
+    location varchar(50),
+    device varchar(50),
+    user_type int
+);
+
+load data infile 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/events.csv'
+into table events
+fields terminated by ','
+enclosed by '"'
+lines terminated by '\n'
+ignore 1 rows;
+
+select * from events;
+
+create table email_events(
+	user_id int,
+    occured_at varchar(50),
+    action varchar(50),
+    user_type int
+);
+
+load data infile 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/email_events.csv'
+into table email_events
+fields terminated by ','
+enclosed by '"'
+lines terminated by '\n'
+ignore 1 rows;
+
+select * from email_events;
+
+
+
+SELECT
+    YEAR(activated_at) AS year,
+    WEEK(activated_at, 1) AS week,
+    COUNT(user_id) AS active_users
+FROM
+    user
+WHERE
+    state = 'active'
+GROUP BY
+    year, week
+ORDER BY
+    year, week;
+
+
+SELECT distinct
+    activated_at,
+    state
+FROM
+    user
+LIMIT 10;
+
+SELECT distinct
+ state
+FROM user
+limit 10;
+
+SELECT
+    YEAR(activated_at) AS year,
+    WEEK(activated_at, 1) AS week,
+    COUNT(user_id) AS active_users
+FROM
+    user
+GROUP BY
+    year, week
+ORDER BY
+    year, week
+LIMIT 10;
+
+SELECT
+    YEAR(STR_TO_DATE(activated_at, '%d-%m-%Y %H:%i')) AS year,
+    WEEK(STR_TO_DATE(activated_at, '%d-%m-%Y %H:%i'), 1) AS week,
+    COUNT(user_id) AS active_users
+FROM
+    user
+GROUP BY
+    year, week
+ORDER BY
+    year, week
+LIMIT 10;
+
+
+SELECT COUNT(*) AS null_count
+FROM user
+WHERE activated_at IS NULL OR state IS NULL;
+
+SELECT
+    user_id,
+    YEAR(STR_TO_DATE(occured_at, '%d-%m-%Y %H:%i')) AS year,
+    WEEK(STR_TO_DATE(occured_at, '%d-%m-%Y %H:%i'), 1) AS week,
+    COUNT(DISTINCT event_name) AS weekly_engagement
+FROM
+    events
+GROUP BY
+    user_id, year, week
+ORDER BY
+    user_id, year, week;
+    
+    SELECT 
+    user_id,
+    DATE_FORMAT(occured_at, '%Y-%u') AS engagement_week,  -- Format the occurred_at date to show Year-Week
+    COUNT(*) AS event_count                                -- Count the number of events (engagements) per user per week
+FROM 
+    events
+GROUP BY 
+    user_id, engagement_week
+ORDER BY 
+    user_id, engagement_week ASC;
+    
+    
+    SELECT
+    DATE_FORMAT(e.occured_at, '%Y-%m') AS month,
+    e.device,
+    COUNT(DISTINCT u.user_id) AS active_users
+FROM
+    user u
+JOIN
+    events e ON u.user_id = e.user_id
+GROUP BY
+    DATE_FORMAT(e.occured_at, '%Y-%m'),
+    e.device
+ORDER BY
+    month, e.device;
+    
+    SELECT
+    occured_at,
+    STR_TO_DATE(occured_at, '%d-%m-%Y %H:%i') AS converted_date
+FROM
+    events
+LIMIT 10;
+    
+    SELECT
+    DATE_FORMAT(STR_TO_DATE(e.occured_at, '%d-%m-%Y %H:%i'), '%Y-%m') AS month,
+    e.device,
+    COUNT(DISTINCT u.user_id) AS active_users
+FROM
+    user u
+JOIN
+    events e ON u.user_id = e.user_id
+GROUP BY
+    month,
+    e.device
+ORDER BY
+    month, e.device;
+    
+-- Step 1: Create a temporary table to store user cohorts
+CREATE TEMPORARY TABLE user_cohorts AS
+SELECT 
+    user_id,
+    DATE_FORMAT(STR_TO_DATE(created_at, '%d-%m-%Y %H:%i:%s'), '%Y-%u') AS sign_up_week
+FROM 
+    user;
+
+
+-- Step 2: Calculate weekly retention
+SELECT 
+    uc.sign_up_week,
+    COUNT(DISTINCT e.user_id) AS retained_users,
+    COUNT(DISTINCT uc.user_id) AS total_users,
+    (COUNT(DISTINCT e.user_id) / COUNT(DISTINCT uc.user_id)) * 100 AS retention_rate
+FROM 
+    user_cohorts uc
+LEFT JOIN 
+    events e ON uc.user_id = e.user_id 
+    AND DATE_FORMAT(e.occured_at, '%Y-%u') = DATE_FORMAT(DATE_ADD(STR_TO_DATE(uc.sign_up_week, '%Y-%u'), INTERVAL 1 WEEK), '%Y-%u')
+GROUP BY 
+    uc.sign_up_week
+ORDER BY 
+    uc.sign_up_week;
+
+-- Step 3: Drop the temporary table
+DROP TEMPORARY TABLE user_cohorts;
+
+
+
+
+WITH user_cohorts AS (
+    SELECT 
+        user_id,
+        DATE_FORMAT(STR_TO_DATE(created_at, '%d-%m-%Y %H:%i'), '%Y-%u') AS sign_up_week
+    FROM 
+        user
+),
+weekly_activity AS (
+    SELECT 
+        uc.user_id,
+        uc.sign_up_week,
+        DATE_FORMAT(STR_TO_DATE(e.occured_at, '%d-%m-%Y %H:%i'), '%Y-%u') AS activity_week
+    FROM 
+        user_cohorts uc
+    LEFT JOIN 
+        events e ON uc.user_id = e.user_id
+)
+SELECT 
+    sign_up_week,
+    COUNT(DISTINCT user_id) AS total_users,
+    COUNT(DISTINCT CASE WHEN sign_up_week = activity_week THEN user_id END) AS retained_users,
+    (COUNT(DISTINCT CASE WHEN sign_up_week = activity_week THEN user_id END) / 
+        COUNT(DISTINCT user_id)) * 100 AS retention_rate
+FROM 
+    weekly_activity
+GROUP BY 
+    sign_up_week
+ORDER BY 
+    sign_up_week;
+
+
+
+
+SELECT 
+    DATE_FORMAT(STR_TO_DATE(occured_at, '%d-%m-%Y %H:%i:%s'), '%Y-%u') AS engagement_week,
+    device,
+    COUNT(DISTINCT user_id) AS active_users,
+    COUNT(*) AS total_engagements
+FROM 
+    events
+GROUP BY 
+    engagement_week,
+    device
+ORDER BY 
+    engagement_week,
+    device;
+
+SELECT 
+    DATE_FORMAT(STR_TO_DATE(occured_at, '%d-%m-%Y %H:%i:%s'), '%Y-%u') AS engagement_week,
+    action,
+    COUNT(*) AS total_actions,
+    COUNT(DISTINCT user_id) AS unique_users,
+    COUNT(DISTINCT CASE WHEN action = 'email_open' THEN user_id END) AS unique_email_opens
+FROM 
+    email_events
+GROUP BY 
+    engagement_week,
+    action
+ORDER BY 
+    engagement_week, 
+    action;
+CREATE DATABASE `sakila` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
+
+
+select * from user;
